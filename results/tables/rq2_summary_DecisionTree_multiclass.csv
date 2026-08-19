@@ -1,0 +1,4 @@
+explainer,n,comp_auc_mean,comp_auc_std,suff_auc_mean,suff_auc_std
+LIME,483,0.8015,0.3234,0.3602,0.4472
+Random,483,0.3497,0.362,0.1384,0.3325
+TreeSHAP,483,0.7687,0.3209,0.4172,0.3994
