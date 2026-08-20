@@ -3,7 +3,7 @@
 Mehedi Hasan (C213061) · Sazzadul Islam (C213066R)
 Supervisor: Mr. Md. Mahiuddin · CSE, IIUC
 
-Last updated: 20 August 2026
+Last updated: 20 August 2026 (six models, RQ1 mechanism falsified)
 
 ---
 
@@ -60,37 +60,103 @@ on rare classes — visible in the per-class table. Stage 3 ablation not yet run
 
 ## Results so far
 
-### Stage 2 — detection baselines (seed 42)
+### Stage 2 — detection baselines (seed 42, multiclass)
 
-Binary (macro-F1): DT 0.9742 · RF 0.9718 · **XGB 0.9799** · Ensemble 0.9751
-Multiclass (macro-F1): DT 0.6389 · RF 0.6629 · **XGB 0.6731** · Ensemble 0.6687
+| model | macro-F1 | PR-AUC | FAR | train s | ms/flow |
+|---|---|---|---|---|---|
+| DecisionTree | 0.6389 | 0.678 | 0.43% | 11.9 | 0.00023 |
+| RandomForest | 0.6629 | 0.731 | 0.46% | 60.6 | 0.00316 |
+| XGBoost | 0.6731 | 0.747 | 0.16% | 253.5 | 0.01231 |
+| LogisticRegression | 0.3290 | 0.321 | 1.37% | 539.0 | 0.00060 |
+| GaussianNB | 0.1213 | 0.195 | **44.79%** | 2.0 | 0.00339 |
+| MLP | 0.4947 | 0.560 | 0.32% | 65.6 | 0.00127 |
+| **SoftVotingEnsemble** | **0.6743** | 0.708 | 0.42% | 932.7 | 0.02096 |
 
-Two things to report honestly:
-- **XGBoost alone beats the soft-voting ensemble** on both tasks.
-- Multiclass macro-F1 collapses ~30 points vs binary. Dragged down by
-  Analysis (F1 0.087) and Backdoor (F1 0.185). Failure is *precision*, not
-  recall — Worms recall 0.939 but precision 0.574.
+Binary (three trees only): DT 0.9742 · RF 0.9718 · **XGB 0.9799** · Ens 0.9751
+
+Points to report:
+
+- **Soft voting absorbed a catastrophic member.** GaussianNB has a 44.79% false
+  alarm rate and macro-F1 0.121 — worse than always predicting Benign — yet the
+  six-model ensemble reached 0.6743, edging past XGBoost's 0.6731, with FAR
+  still 0.42%. Probability averaging is more robust to a broken member than
+  expected. Worth a paragraph.
+- **GaussianNB, LogisticRegression and MLP are RQ1 controls, not baselines.**
+  State this explicitly in the methodology, or an examiner will read 0.121 as
+  an error.
+- **LogisticRegression did not converge** — hit `max_iter=1000` after 539s
+  (`ConvergenceWarning`, lbfgs). Report it; do not quietly raise the limit.
+- On binary, **XGBoost alone beats the three-tree ensemble**.
+- Multiclass macro-F1 collapses ~30 points vs binary, dragged down by
+  Analysis and Backdoor. Failure is *precision*, not recall.
+
+Per-class recall was recomputed for the six-model ensemble and differs from the
+three-model version (Analysis F1 0.087 → 0.166; Shellcode 0.708 → 0.599).
+Keep both — the comparison is itself a finding about ensemble composition.
 
 ### RQ1 — LIME stability (933 instances, 10 runs each, 9,330 explanations/model)
 
-| model | Jaccard@5 | Jaccard@10 | Kendall τ | s/expl |
-|---|---|---|---|---|
-| DecisionTree | **0.337** | 0.285 | **0.158** | 0.090 |
-| XGBoost | 0.638 | 0.468 | 0.545 | 0.155 |
-| RandomForest | 0.868 | 0.802 | 0.653 | 0.102 |
+Six models, identical data, identical explainer configuration:
 
-**LIME is least stable on the simplest, intrinsically interpretable model.**
-Proposed mechanism: a DT's `predict_proba` is piecewise-constant with sharp
-axis-aligned boundaries, so LIME's local linear surrogate has almost no
-gradient to fit and the weights are near-arbitrary. RF averages 100 trees into
-a smooth surface, giving the surrogate real signal.
+| model | surface | macro-F1 | Jaccard@5 | Jaccard@10 | Kendall τ | s/expl |
+|---|---|---|---|---|---|---|
+| DecisionTree | single tree, piecewise-constant | 0.639 | **0.337** | 0.285 | **0.158** | 0.090 |
+| GaussianNB | smooth, simple | 0.121 | 0.544 | 0.518 | 0.523 | 0.095 |
+| LogisticRegression | smooth, linear | 0.329 | 0.551 | 0.559 | 0.432 | 0.076 |
+| XGBoost | averaged trees (200) | 0.673 | 0.638 | 0.468 | 0.545 | 0.155 |
+| MLP | smooth, non-linear | 0.495 | 0.808 | 0.648 | 0.498 | 0.077 |
+| RandomForest | averaged trees (100) | 0.663 | **0.868** | 0.802 | **0.653** | 0.102 |
 
-Benign has the worst Kendall τ in all three models. The Jaccard/Kendall
-*inversion* (high top-k overlap, low rank correlation) is **RandomForest-specific** —
-do not generalise it.
+**A 2.6-fold spread in reproducibility with nothing changed but the model.**
 
-Timing note: RF measured on an idle machine (0.102s). DT and XGB were measured
-under concurrent load — state this or re-time.
+#### Four mechanisms proposed, all falsified
+
+Each was stated as a prediction before the run. Document all four — the
+falsifications are the contribution, not an embarrassment.
+
+1. **Surface smoothness.** Prediction: a globally linear model gives LIME's
+   local linear surrogate a perfect fit, so Jaccard@5 near 1.0.
+   Result: LogisticRegression ranks **fifth of six** at 0.551. Falsified.
+   (`rq1_smoothness_axis.csv` — three inversions along the axis.)
+2. **Model accuracy.** Falsified: GaussianNB (macro-F1 0.121) and
+   LogisticRegression (0.329) have near-identical stability, 0.544 vs 0.551,
+   at nearly 3x the detection performance.
+3. **Model family.** Falsified: trees occupy both extremes — DecisionTree
+   worst at 0.337, RandomForest best at 0.868.
+4. **Probability granularity.** Prediction: a model emitting few distinct
+   probabilities gives the surrogate regression little to fit.
+   Result: Spearman ρ = 0.600, p = 0.208. LogisticRegression is the
+   counterexample — most distinct probabilities of any model (1,604 unique
+   top-class values vs DecisionTree's 221) yet second-worst stability.
+   Falsified. (`rq1_granularity.csv`.)
+
+**Stop here.** With n=6 models, any further variable that happens to fit is
+curve-fitting and would not survive a seventh model.
+
+#### The claim the evidence supports
+
+> Across six classifiers on identical data, LIME's mean Jaccard@5 over ten runs
+> on the same instance ranges from 0.337 to 0.868 — a 2.6-fold difference in
+> reproducibility with no change to the data, the explainer, or its
+> configuration. This variation is not predicted by the smoothness of the
+> model's probability surface, by detection performance, by model family, or by
+> the granularity of the model's probability output. Explanation stability is
+> therefore a property that must be measured for each deployed model; it cannot
+> be inferred from a published evaluation of a different one.
+
+This also answers one of the three defence questions the roadmap says to
+prepare: *what would you conclude if LIME had turned out stable?*
+
+#### Secondary observations
+
+- **Jaccard and Kendall order the models differently.** MLP is 2nd on
+  Jaccard@5 but 4th on τ; GaussianNB is 4th on Jaccard but 2nd on τ. The same
+  dissociation appears *within* RandomForest across attack classes (Benign has
+  the highest Jaccard@5 at 0.916 and the lowest τ at 0.530). Top-k overlap and
+  rank correlation are not interchangeable.
+- Benign has the worst Kendall τ in the three tree models.
+- Timing note: RF measured on an idle machine (0.102s). Others measured under
+  varying load — state this or re-time.
 
 ### RQ2 — faithfulness (483 instances, frozen model, mean-imputation masking)
 

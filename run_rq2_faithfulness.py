@@ -36,6 +36,7 @@ import shap
 from lime.lime_tabular import LimeTabularExplainer
 
 import config
+from explainers import get_shap_explainer, shap_ranking
 from faithfulness import curves_for_instance, auc_over_k, auc_sufficiency
 
 KS = list(range(1, 11))
@@ -92,8 +93,9 @@ def main(model_name: str, task: str, seed: int, n_instances: int,
         mode="classification",
     )
 
-    # TreeSHAP — exact for tree ensembles, deterministic
-    tree_expl = shap.TreeExplainer(clf)
+    # TreeSHAP where available; LinearSHAP / KernelSHAP otherwise (RQ5)
+    tree_expl, shap_kind = get_shap_explainer(clf, bg.values)
+    print(f"SHAP variant: {shap_kind}")
 
     rows = []
     for n, idx in enumerate(sample_idx, 1):
@@ -103,17 +105,12 @@ def main(model_name: str, task: str, seed: int, n_instances: int,
 
         rank_lime = lime_ranking(explainer, x, clf, label, n_features, num_samples)
 
-        sv = tree_expl.shap_values(x.reshape(1, -1))
-        arr = np.array(sv)
-        if arr.ndim == 3:            # (1, features, classes) or (classes, 1, features)
-            arr = arr[0, :, label] if arr.shape[0] == 1 else arr[label, 0, :]
-        else:
-            arr = arr[0]
-        rank_shap = list(np.argsort(-np.abs(arr)))
+        rank_shap, _ = shap_ranking(tree_expl, shap_kind, clf, x, label,
+                                    n_features)
 
         rank_rand = list(rng.permutation(n_features))
 
-        for tag, rank in (("LIME", rank_lime), ("TreeSHAP", rank_shap),
+        for tag, rank in (("LIME", rank_lime), (shap_kind, rank_shap),
                           ("Random", rank_rand)):
             c = curves_for_instance(x, rank, clf, baseline, label, KS)
             rows.append({
@@ -151,17 +148,17 @@ def main(model_name: str, task: str, seed: int, n_instances: int,
 
     lime_c = summary.loc["LIME", "comp_auc_mean"]
     rand_c = summary.loc["Random", "comp_auc_mean"]
-    shap_c = summary.loc["TreeSHAP", "comp_auc_mean"]
+    shap_c = summary.loc[shap_kind, "comp_auc_mean"]
     print(f"\nLIME vs Random    : {lime_c:.4f} vs {rand_c:.4f} "
           f"(ratio {lime_c/rand_c if rand_c else float('nan'):.2f}x)")
-    print(f"TreeSHAP vs Random: {shap_c:.4f} vs {rand_c:.4f} "
+    print(f"{shap_kind} vs Random: {shap_c:.4f} vs {rand_c:.4f} "
           f"(ratio {shap_c/rand_c if rand_c else float('nan'):.2f}x)")
 
     # paired Wilcoxon: is LIME actually better than random on the same instances?
     from scipy.stats import wilcoxon
     piv = res.pivot_table(index="instance", columns="explainer",
                           values="comprehensiveness_auc")
-    for a in ("LIME", "TreeSHAP"):
+    for a in ("LIME", shap_kind):
         try:
             st, p = wilcoxon(piv[a], piv["Random"])
             print(f"Wilcoxon {a} > Random: statistic={st:.0f}  p={p:.3e}")

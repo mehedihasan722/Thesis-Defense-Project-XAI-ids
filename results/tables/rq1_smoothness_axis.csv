@@ -1,0 +1,7 @@
+model,surface,n,jaccard@5,jaccard@10,kendall_tau
+GaussianNB,"smooth, simple",933,0.5443,0.5184,0.523
+LogisticRegression,"smooth, linear",933,0.5505,0.559,0.432
+MLP,"smooth, non-linear",933,0.808,0.6483,0.4978
+XGBoost,averaged trees (200),933,0.6381,0.4676,0.545
+RandomForest,averaged trees (100),933,0.8684,0.8015,0.6526
+DecisionTree,"single tree, piecewise-constant",933,0.3373,0.2848,0.1584

@@ -40,6 +40,7 @@ from lime.lime_tabular import LimeTabularExplainer
 from sklearn.inspection import permutation_importance
 
 import config
+from explainers import get_shap_explainer
 from agreement import (agreement_matrix, jaccard_matrix,
                        importance_noise_report, topsis_feature_ranking)
 
@@ -95,10 +96,13 @@ def main(model_name: str, task: str, seed: int, n_instances: int,
     lime_imp /= len(sample_idx)
 
     # ---- TreeSHAP: mean |shap value| --------------------------------------
-    print("TreeSHAP...", flush=True)
-    tree_expl = shap.TreeExplainer(clf)
+    tree_expl, shap_kind = get_shap_explainer(clf, bg.values)
+    print(f"{shap_kind}...", flush=True)
     Xs = X_te.loc[sample_idx]
-    sv = tree_expl.shap_values(Xs)
+    if shap_kind == "LinearSHAP":
+        sv = tree_expl.shap_values(clf.steps[0][1].transform(Xs))
+    else:
+        sv = tree_expl.shap_values(Xs)
     arr = np.array(sv)
     if arr.ndim == 3:
         shap_imp = np.abs(arr).mean(axis=(0, 2)) if arr.shape[0] == len(Xs) \
@@ -126,7 +130,7 @@ def main(model_name: str, task: str, seed: int, n_instances: int,
 
     rankings = {
         "LIME": list(np.argsort(-lime_imp)),
-        "TreeSHAP": list(np.argsort(-shap_imp)),
+        shap_kind: list(np.argsort(-shap_imp)),
         "Permutation": list(np.argsort(-perm_imp)),
         "TOPSIS": list(topsis_order),
     }
@@ -154,7 +158,7 @@ def main(model_name: str, task: str, seed: int, n_instances: int,
 
     # ---- how much of each ranking is above noise? -------------------------
     noise = importance_noise_report(
-        {"LIME": lime_imp, "TreeSHAP": shap_imp, "Permutation": perm_imp},
+        {"LIME": lime_imp, shap_kind: shap_imp, "Permutation": perm_imp},
         {"Permutation": perm_std},
         feature_names,
     )

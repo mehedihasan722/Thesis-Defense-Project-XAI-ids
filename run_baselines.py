@@ -33,7 +33,8 @@ from models import build_models, soft_vote
 from evaluation import evaluate, per_class_recall
 
 
-def main(task: str, seed: int, no_svm: bool = False):
+def main(task: str, seed: int, no_svm: bool = False,
+         logreg: bool = False, nb: bool = False, mlp: bool = False):
     t_all = time.time()
 
     # ---- load the Stage 1 checkpoint -------------------------------------
@@ -63,7 +64,9 @@ def main(task: str, seed: int, no_svm: bool = False):
 
     # ---- train ------------------------------------------------------------
     models = build_models(task, n_classes=len(class_names), seed=seed,
-                          include_svm=not no_svm)
+                          include_svm=not no_svm,
+                          include_logreg=logreg,
+                          include_nb=nb, include_mlp=mlp)
     rows, probas, timings = [], {}, {}
 
     for name, clf in models.items():
@@ -140,4 +143,10 @@ if __name__ == "__main__":
     ap.add_argument("--no-svm", action="store_true",
                     help="skip SVM (much faster; required for multiclass "
                          "unless you have many hours)")
+    ap.add_argument("--logreg", action="store_true",
+                    help="add LogisticRegression (smooth, linear)")
+    ap.add_argument("--nb", action="store_true",
+                    help="add GaussianNB (smooth, simple)")
+    ap.add_argument("--mlp", action="store_true",
+                    help="add MLP (smooth, non-linear)")
     main(**vars(ap.parse_args()))

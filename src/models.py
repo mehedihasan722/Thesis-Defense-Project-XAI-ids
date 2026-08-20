@@ -18,6 +18,9 @@ from __future__ import annotations
 import numpy as np
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neural_network import MLPClassifier
 from sklearn.svm import SVC
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -26,8 +29,34 @@ from xgboost import XGBClassifier
 import config
 
 
+def is_tree_model(clf) -> bool:
+    """TreeSHAP only applies to tree ensembles. Anything else needs a
+    different explainer — which is itself the RQ5 tooling-bias question."""
+    from sklearn.pipeline import Pipeline as _P
+    inner = clf.steps[-1][1] if isinstance(clf, _P) else clf
+    return inner.__class__.__name__ in {
+        "DecisionTreeClassifier", "RandomForestClassifier",
+        "XGBClassifier", "ExtraTreesClassifier", "GradientBoostingClassifier",
+    }
+
+
+# Ordered by expected smoothness of the probability surface — the axis RQ1
+# claims LIME stability tracks. Used to label results tables.
+SURFACE_SMOOTHNESS = {
+    "GaussianNB": "smooth, simple",
+    "LogisticRegression": "smooth, linear",
+    "MLP": "smooth, non-linear",
+    "XGBoost": "averaged trees (200)",
+    "RandomForest": "averaged trees (100)",
+    "DecisionTree": "single tree, piecewise-constant",
+}
+
+
 def build_models(task: str, n_classes: int, seed: int = config.SEED,
-                 include_svm: bool = True) -> dict:
+                 include_svm: bool = True,
+                 include_logreg: bool = False,
+                 include_nb: bool = False,
+                 include_mlp: bool = False) -> dict:
     common_tree = dict(random_state=seed, class_weight="balanced")
 
     models = {
@@ -48,6 +77,46 @@ def build_models(task: str, n_classes: int, seed: int = config.SEED,
             eval_metric="logloss",
         ),
     }
+
+    if include_logreg:
+        # Not here to compete on macro-F1 — it will lose to the trees.
+        # Its purpose is RQ1: a globally linear, perfectly smooth probability
+        # surface is the control case for the claim that LIME stability
+        # tracks surface smoothness. Prediction: Jaccard@5 near 1.0.
+        models["LogisticRegression"] = Pipeline([
+            ("scale", StandardScaler()),
+            ("lr", LogisticRegression(
+                max_iter=1000, C=1.0, class_weight="balanced",
+                n_jobs=config.N_JOBS, random_state=seed,
+                multi_class="multinomial" if task == "multiclass" else "auto",
+            )),
+        ])
+
+    if include_nb:
+        # Smooth Gaussian likelihoods, no learned decision boundary.
+        # Weakest detector here by some margin — included as a smoothness
+        # control for RQ1, not as a competitive baseline.
+        models["GaussianNB"] = Pipeline([
+            ("scale", StandardScaler()),
+            ("nb", GaussianNB()),
+        ])
+
+    if include_mlp:
+        # Smooth AND non-linear — fills the gap between LogisticRegression
+        # and the tree ensembles on the smoothness axis. Also forces
+        # KernelSHAP, which supplies the RQ5 cost comparison.
+        models["MLP"] = Pipeline([
+            ("scale", StandardScaler()),
+            ("mlp", MLPClassifier(
+                hidden_layer_sizes=(64, 32),
+                activation="relu",
+                max_iter=30,              # keep training time sane on 1.59M rows
+                early_stopping=True,
+                n_iter_no_change=3,
+                batch_size=1024,
+                random_state=seed,
+            )),
+        ])
 
     if include_svm:
         models["SVM"] = Pipeline([
