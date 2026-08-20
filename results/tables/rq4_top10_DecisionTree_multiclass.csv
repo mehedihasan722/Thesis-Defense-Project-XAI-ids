@@ -1,0 +1,11 @@
+,LIME,TreeSHAP,Permutation,TOPSIS
+#1,min_ttl,min_ttl,min_ttl,src_to_dst_second_bytes
+#2,max_ttl,l7_proto,max_ip_pkt_len,tcp_win_max_in
+#3,protocol,max_ip_pkt_len,l7_proto,icmp_type
+#4,duration_in,protocol,dst_to_src_second_bytes,icmp_ipv4_type
+#5,shortest_flow_pkt,src_to_dst_second_bytes,src_to_dst_second_bytes,tcp_win_max_out
+#6,dns_query_id,dst_to_src_second_bytes,retransmitted_in_bytes,max_ip_pkt_len
+#7,duration_out,icmp_type,src_to_dst_avg_throughput,longest_flow_pkt
+#8,dns_ttl_answer,longest_flow_pkt,in_bytes,server_tcp_flags
+#9,max_ip_pkt_len,retransmitted_in_bytes,longest_flow_pkt,client_tcp_flags
+#10,dns_query_type,shortest_flow_pkt,icmp_type,tcp_flags
